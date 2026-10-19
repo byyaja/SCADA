@@ -868,20 +868,24 @@
         let csvText = '';
         const timestamp = new Date().getTime();
 
-        // 1. Coba ambil langsung dari raw.githubusercontent.com dengan bypass cache
-        const rawUrl = `https://raw.githubusercontent.com/${settings.owner}/${settings.repo}/main/logs/sensor_log.csv?_t=${timestamp}`;
-        let response = await fetch(rawUrl, { cache: 'no-store' });
+        // 1. Prioritaskan Live GitHub API langsung (Bypass Fastly CDN cache 5 menit)
+        const apiUrl = `https://api.github.com/repos/${settings.owner}/${settings.repo}/contents/logs/sensor_log.csv`;
+        const headers = {
+          'Accept': 'application/vnd.github.v3.raw'
+        };
+        if (settings.token) {
+          headers['Authorization'] = `Bearer ${settings.token}`;
+        }
 
-        if (!response.ok && settings.token) {
-          // 2. Jika gagal dan ada token, coba gunakan API terotentikasi
-          const apiUrl = `https://api.github.com/repos/${settings.owner}/${settings.repo}/contents/logs/sensor_log.csv`;
-          response = await fetch(apiUrl, {
-            cache: 'no-store',
-            headers: {
-              'Authorization': `Bearer ${settings.token}`,
-              'Accept': 'application/vnd.github.v3.raw'
-            }
-          });
+        let response = await fetch(apiUrl, {
+          cache: 'no-store',
+          headers: headers
+        });
+
+        // 2. Jika API gagal (misal rate limit 403), fallback ke raw URL
+        if (!response.ok) {
+          const rawUrl = `https://raw.githubusercontent.com/${settings.owner}/${settings.repo}/main/logs/sensor_log.csv?_t=${timestamp}`;
+          response = await fetch(rawUrl, { cache: 'no-store' });
         }
 
         if (!response.ok) {
