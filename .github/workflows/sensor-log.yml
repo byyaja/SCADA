@@ -1,0 +1,157 @@
+name: SCADA UV Sensor Log & Telegram Alert
+
+on:
+  repository_dispatch:
+    types: [sensor_update]
+  workflow_dispatch:
+    inputs:
+      status:
+        description: 'Status (AMAN/BAHAYA)'
+        required: false
+        default: 'AMAN'
+      kondisi:
+        description: 'Kondisi UV'
+        required: false
+        default: 'UV Cukup'
+      ldr_value:
+        description: 'Nilai LDR ADC'
+        required: false
+        default: '1200'
+
+permissions:
+  contents: write
+
+jobs:
+  log-and-notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 📝 Simpan Data ke CSV Baru
+        run: |
+          STATUS="${{ github.event.client_payload.status || github.event.inputs.status || 'AMAN' }}"
+          KONDISI="${{ github.event.client_payload.kondisi || github.event.inputs.kondisi || 'UV Cukup' }}"
+          LOCATION="${{ github.event.client_payload.location || 'Ruang Sterilisasi UV' }}"
+          TIMESTAMP="${{ github.event.client_payload.timestamp || 'Manual Test' }}"
+          LDR_VALUE="${{ github.event.client_payload.ldr_value || github.event.inputs.ldr_value || '0' }}"
+
+          mkdir -p logs
+
+          HEADER="Tanggal_Waktu,Status,Kondisi,Lokasi,Nilai_LDR"
+          if [ ! -f logs/sensor_log.csv ] || ! head -1 logs/sensor_log.csv | grep -q "Kondisi"; then
+            echo "$HEADER" > logs/sensor_log.csv
+            echo "📋 File logs/sensor_log.csv baru dibuat"
+          fi
+
+          echo "${TIMESTAMP},${STATUS},${KONDISI},${LOCATION},${LDR_VALUE}" >> logs/sensor_log.csv
+
+          TOTAL_LOG=$(tail -n +2 logs/sensor_log.csv | wc -l)
+          echo "✅ Telemetri SCADA berhasil ditambahkan (Total: ${TOTAL_LOG} data)"
+          echo "📊 Status: ${STATUS} | Kondisi: ${KONDISI} | LDR ADC: ${LDR_VALUE}"
+
+      - name: 📊 Update README SCADA
+        run: |
+          STATUS="${{ github.event.client_payload.status || github.event.inputs.status || 'AMAN' }}"
+          KONDISI="${{ github.event.client_payload.kondisi || github.event.inputs.kondisi || 'UV Cukup' }}"
+          LOCATION="${{ github.event.client_payload.location || 'Ruang Sterilisasi UV' }}"
+          TIMESTAMP="${{ github.event.client_payload.timestamp || 'Manual Test' }}"
+          LDR_VALUE="${{ github.event.client_payload.ldr_value || github.event.inputs.ldr_value || '0' }}"
+          TOTAL_LOG=$(tail -n +2 logs/sensor_log.csv | wc -l)
+
+          cat > README.md << 'HEREDOC_END'
+# ☀️ Sistem SCADA IoT — Monitoring Intensitas Cahaya UV
+
+> Monitoring Intensitas Radiasi Cahaya UV secara Real-Time menggunakan Node Sensor ESP8266 + Sensor LDR.
+> Notifikasi Telegram Otomatis via GitHub Actions | Log Telemetri Tersimpan di GitHub | Dashboard Interaktif SCADA.
+
+## 📊 Status Operasional Terakhir
+
+| Parameter SCADA | Nilai / Kondisi |
+|-----------------|-----------------|
+HEREDOC_END
+
+          echo "| 🔔 Status Sistem | **${STATUS}** |" >> README.md
+          echo "| ☀️ Kondisi UV | **${KONDISI}** |" >> README.md
+          echo "| 📍 Lokasi Node | ${LOCATION} |" >> README.md
+          echo "| 🕐 Waktu Akuisisi | ${TIMESTAMP} |" >> README.md
+          echo "| 📈 Nilai ADC LDR | ${LDR_VALUE} |" >> README.md
+          echo "| 📁 Total Data Log | ${TOTAL_LOG} data |" >> README.md
+
+          cat >> README.md << 'HEREDOC_END'
+
+## 📂 File Data Log
+Data telemetri lengkap tersimpan di [`logs/sensor_log.csv`](logs/sensor_log.csv)
+
+## 🌐 Dashboard SCADA
+Buka dashboard interaktif melalui GitHub Pages: [`index.html`](index.html)
+
+## 🏗️ Arsitektur SCADA
+```
+[Sensor LDR (A0)] ➔ [Node ESP8266] ➔ [GitHub API Dispatches] ➔ [GitHub Actions Workflow]
+                                                                     ├── [Update CSV Log]
+                                                                     ├── [Telegram Bot Alert (Jika UV Kurang)]
+                                                                     └── [SCADA Web Dashboard]
+```
+
+---
+HEREDOC_END
+
+          echo "*Pembaruan data otomatis pada: ${TIMESTAMP}*" >> README.md
+
+      - name: 💾 Commit & Push Data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add logs/sensor_log.csv README.md
+          git diff --quiet --cached && echo "Tidak ada perubahan" && exit 0
+          git commit -m "📊 SCADA Telemetry: ${KONDISI} (ADC: ${LDR_VALUE})"
+          git push
+
+      - name: 📱 Kirim Notifikasi Telegram (Hanya Saat Peringatan / UV Kurang)
+        if: github.event.client_payload.trigger_telegram == 'true'
+        run: |
+          STATUS="${{ github.event.client_payload.status }}"
+          KONDISI="${{ github.event.client_payload.kondisi }}"
+          LOCATION="${{ github.event.client_payload.location || 'Ruang Sterilisasi UV' }}"
+          TIMESTAMP="${{ github.event.client_payload.timestamp || 'Unknown' }}"
+          LDR_VALUE="${{ github.event.client_payload.ldr_value || '0' }}"
+
+          MESSAGE=$(cat << EOF
+          🚨 <b>PERINGATAN SCADA: INTENSITAS UV KURANG!</b>
+          ━━━━━━━━━━━━━━━━━━━━
+          🛡️ Status: ${STATUS}
+          ☀️ Kondisi UV: ${KONDISI}
+          📍 Lokasi Node: ${LOCATION}
+          🕐 Waktu: ${TIMESTAMP}
+          💡 Nilai ADC LDR: ${LDR_VALUE}
+          ━━━━━━━━━━━━━━━━━━━━
+          ⚠️ Peringatan: Intensitas radiasi UV tercatat di bawah standar batas aman/efektif jurnal!
+          Segera periksa modul sumber cahaya UV!
+          EOF
+          )
+
+          JSON_PAYLOAD=$(jq -n \
+            --arg chat_id "${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --arg text "$MESSAGE" \
+            --arg parse_mode "HTML" \
+            '{chat_id: $chat_id, text: $text, parse_mode: $parse_mode}')
+
+          echo "📱 Mengirim notifikasi Telegram SCADA..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$JSON_PAYLOAD")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "📬 HTTP Code: ${HTTP_CODE}"
+          echo "📦 Body: ${BODY}"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Notifikasi Telegram berhasil terkirim!"
+          else
+            echo "⚠️ Telegram notifikasi gagal (cek secrets TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID jika diaktifkan)."
+          fi
