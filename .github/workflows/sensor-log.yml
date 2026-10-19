@@ -55,7 +55,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add logs/sensor_log.csv
           git diff --quiet --cached && echo "Tidak ada perubahan data" && exit 0
-          git commit -m "Log telemetri SCADA: ${{ github.event.client_payload.kondisi || 'Update' }}"
+          git commit -m "Log telemetri SCADA: ${{ github.event.client_payload.kondisi || 'Update' }} [skip ci]"
           git push
 
       - name: Kirim Notifikasi Telegram
