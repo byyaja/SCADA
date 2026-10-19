@@ -628,7 +628,7 @@
         </div>
         <div class="form-group">
           <label>Repository Name</label>
-          <input type="text" id="ghRepo" value="unyil">
+          <input type="text" id="ghRepo" value="SCADA">
         </div>
         <div class="form-group">
           <label>Personal Access Token (Opsional)</label>
@@ -706,7 +706,7 @@
         <div class="kpi-card">
           <div class="kpi-label">
             <span>Total Data Akuisisi</span>
-            <span>⏱️ 12 Jam</span>
+            <span>⏱️ REAL-TIME KONTINU</span>
           </div>
           <div class="kpi-value" id="kpiTotalLog">0</div>
           <div class="kpi-sub" id="kpiLastUpdated">Pembaruan: -</div>
@@ -789,11 +789,29 @@
     let refreshTimer = null;
     let globalLogData = [];
 
-    // Load setting dari LocalStorage (atau default)
+    // Load setting dari LocalStorage (atau default SCADA)
     function getSettings() {
+      // Bersihkan cache lama jika sebelumnya sempat tersimpan 'unyil'
+      if (window.location.pathname.toLowerCase().includes('scada')) {
+        if (localStorage.getItem('scada_gh_repo') === 'unyil') {
+          localStorage.removeItem('scada_gh_repo');
+        }
+      }
+
+      let defaultRepo = 'SCADA';
+      let defaultOwner = 'byyaja';
+
+      const pathParts = window.location.pathname.split('/').filter(p => p.length > 0);
+      if (pathParts.length > 0 && !pathParts[0].includes('.html')) {
+        defaultRepo = pathParts[0];
+      }
+      if (window.location.hostname.endsWith('.github.io')) {
+        defaultOwner = window.location.hostname.split('.')[0];
+      }
+
       return {
-        owner: localStorage.getItem('scada_gh_owner') || 'byyaja',
-        repo: localStorage.getItem('scada_gh_repo') || 'unyil',
+        owner: localStorage.getItem('scada_gh_owner') || defaultOwner,
+        repo: localStorage.getItem('scada_gh_repo') || defaultRepo,
         token: localStorage.getItem('scada_gh_token') || '',
         threshold: parseInt(localStorage.getItem('scada_threshold')) || 2500
       };
@@ -806,7 +824,7 @@
 
     function saveSettings() {
       const owner = document.getElementById('ghOwner').value.trim() || 'byyaja';
-      const repo = document.getElementById('ghRepo').value.trim() || 'unyil';
+      const repo = document.getElementById('ghRepo').value.trim() || 'SCADA';
       const token = document.getElementById('ghToken').value.trim();
       const threshold = parseInt(document.getElementById('scadaThreshold').value) || 2500;
 
@@ -826,7 +844,7 @@
       localStorage.removeItem('scada_threshold');
 
       document.getElementById('ghOwner').value = 'byyaja';
-      document.getElementById('ghRepo').value = 'unyil';
+      document.getElementById('ghRepo').value = 'SCADA';
       document.getElementById('ghToken').value = '';
       document.getElementById('scadaThreshold').value = 2500;
 
@@ -916,7 +934,20 @@
 
     // Render Metrik KPI & Alarm Banner
     function renderKPIs() {
-      if (globalLogData.length === 0) return;
+      if (globalLogData.length === 0) {
+        document.getElementById('kpiCurrentVal').textContent = '0';
+        document.getElementById('kpiCondition').textContent = 'Menunggu telemetri baru...';
+        document.getElementById('kpiLocation').textContent = 'Lokasi: -';
+        document.getElementById('kpiAvgVal').textContent = '0';
+        document.getElementById('kpiMinMax').textContent = 'Min: 0 | Max: 0';
+        document.getElementById('kpiTotalLog').textContent = '0';
+        document.getElementById('kpiLastUpdated').textContent = 'Menunggu data pertama';
+        document.getElementById('alarmBanner').style.display = 'none';
+        const statusBadge = document.getElementById('kpiStatusBadge');
+        statusBadge.className = 'badge-status badge-safe';
+        statusBadge.textContent = 'STANDBY / SIAP';
+        return;
+      }
 
       const latest = globalLogData[globalLogData.length - 1];
       const ldrValues = globalLogData.map(d => d.ldr);
@@ -1068,6 +1099,18 @@
     function renderTable() {
       const tbody = document.getElementById('logTableBody');
       tbody.innerHTML = '';
+
+      if (globalLogData.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="5" style="text-align: center; padding: 40px 14px; color: var(--text-muted); font-size: 0.95rem;">
+              ⏳ <b>Repositori SCADA Bersih & Siap Menerima Data Baru</b><br>
+              <span style="font-size: 0.82rem; color: #a88;">Nyalakan ESP8266 untuk mulai merekam data telemetri UV pertama ke repositori ini.</span>
+            </td>
+          </tr>
+        `;
+        return;
+      }
 
       // Tampilkan urutan terbaru di atas
       const reversed = [...globalLogData].reverse();
