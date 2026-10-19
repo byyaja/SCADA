@@ -1,14 +1,11 @@
 /*
  * ==============================================================================
- *  PROYEK SISTEM SCADA IoT — MONITORING INTENSITAS CAHAYA UV (ESP8266 + SENSOR LDR)
+ *  PROYEK SISTEM SCADA IoT — MONITORING INTENSITAS CAHAYA UV (ESP8266 + LDR)
  *  
- *  Fitur:
- *   1. Akuisisi Data Intensitas Radiasi Cahaya UV via Sensor LDR (Pin Analog A0)
- *   2. Klasifikasi Kondisi UV Multi-Level (Berdasarkan Referensi Jurnal)
- *   3. Deteksi Alarm / Peringatan Otomatis saat Intensitas UV KURANG
- *   4. Pengiriman Telemetri ke GitHub API (Repository Dispatch)
- *   5. Notifikasi Otomatis ke Telegram via GitHub Actions Workflow
- *   6. Edge Detection Anti-Spam (Hanya kirim Telegram saat status masuk ke BAHAYA)
+ *  Konfigurasi ADC 10-Bit ESP8266 (0 - 1023):
+ *   - ADC >= 750        : BAHAYA     (UV Sangat Kurang / Kritis)
+ *   - 650 <= ADC < 750  : PERINGATAN (UV Kurang dari Standar)
+ *   - ADC < 650         : AMAN       (UV Optimal / Sesuai Acuan)
  * ==============================================================================
  */
 
@@ -20,61 +17,48 @@
 // ==============================================================================
 // 1. KONFIGURASI JARINGAN WiFi
 // ==============================================================================
-const char* WIFI_SSID       = "Byy";
-const char* WIFI_PASSWORD   = "buyyyyyy";
+const char* WIFI_SSID       = "py";        // Ganti dengan SSID WiFi Anda
+const char* WIFI_PASSWORD   = "11111111";  // Ganti dengan Password WiFi Anda
 
 // ==============================================================================
 // 2. KONFIGURASI REPOSITORI GITHUB & TELEMETRI SCADA
 // ==============================================================================
 const bool  ENABLE_GITHUB_LOG = true;
-const char* GITHUB_OWNER      = "byyaja";
-const char* GITHUB_REPO       = "SCADA";
+const char* GITHUB_OWNER      = "byyaja";  // Username Akun GitHub
+const char* GITHUB_REPO       = "SCADA";   // Nama Repositori GitHub Baru (SCADA)
 
 /*
  * PENTING KEAMANAN GITHUB:
  * Masukkan token GitHub Anda di bawah ini hanya di komputer lokal saat hendak flash!
- * JANGAN commit / push file yang berisi token asli ke GitHub publik,
- * karena GitHub Secret Scanning akan otomatis mematikan (revoke) token tersebut!
+ * JANGAN commit / push file yang berisi token asli ke GitHub publik.
  */
-const char* GITHUB_TOKEN      = ;
+const char* GITHUB_TOKEN      = ""; 
 
 // ==============================================================================
-// 3. PARAMETER SENSOR LDR & AMBANG BATAS UV (REFERENSI JURNAL)
+// 3. PARAMETER SENSOR LDR (RENTANG 10-BIT ADC: 0 - 1023)
 // ==============================================================================
-#define LDR_PIN         A0        // Pin analog ESP8266 (A0, rentang ADC 0 - 1023)
+#define LDR_PIN         A0        // Pin analog ESP8266 (A0, rentang native 0 - 1023)
 #define LED_INDICATOR   2         // LED onboard ESP8266 (GPIO2, Active LOW)
 const char* SENSOR_LOCATION = "Ruang Sterilisasi UV"; // Nama Node / Lokasi SCADA
 
-/*
- * CATATAN PENGATURAN REFERENSI JURNAL:
- * Nilai analog dibaca dari A0 dan di-scale ke resolusi 12-bit (0 - 4095).
- * Pada rangkaian voltage divider standar (LDR ke GND, Resistor ke VCC):
- *   - Cahaya/UV Terang  -> Resistansi LDR Kecil -> Nilai ADC RENDAH
- *   - Cahaya/UV Kurang  -> Resistansi LDR Besar -> Nilai ADC TINGGI
- * 
- * Silakan sesuaikan angka ambang batas berikut sesuai tabel jurnal yang Anda temukan:
- */
-const int BATAS_NORMAL     = 3500; // ADC 3500-4095: NORMAL
-const int BATAS_PERINGATAN = 2500; // ADC 2500-3499: PERINGATAN
-// ADC 0-2499: BAHAYA
+// Ambang Batas Acuan SCADA (ADC 10-Bit Native):
+const int BATAS_BAHAYA     = 750; // ADC >= 750        : BAHAYA (UV Sangat Kurang)
+const int BATAS_PERINGATAN = 650; // 650 <= ADC < 750  : PERINGATAN (UV Kurang)
+                                  // ADC < 650         : AMAN (UV Optimal)
 
 // ==============================================================================
-// 4. TIMING PENGUKURAN & INTERVAL SCADA
+// 4. TIMING PENGUKURAN & INTERVAL SCADA (MONITORING KONTINU TANPA BATAS WAKTU)
 // ==============================================================================
-// Contoh: Interval pembacaan 10 menit = 600.000 ms. (Untuk tes cepat bisa diganti 10.000 ms)
-const unsigned long INTERVAL_BACA = 10000;   // 10 detik untuk uji coba (ganti 600000 untuk 10 menit)
-const unsigned long DURASI_TOTAL  = 43200000; // 12 Jam (43.200.000 ms)
-
+const unsigned long INTERVAL_BACA = 15000;   // Interval pembacaan (15 detik)
 unsigned long lastReadTime  = 0;
-unsigned long startTime     = 0;
 bool firstRead              = true;
 
 // Edge Detection: Mencegah spam pesan Telegram
-bool statusBahayaActive     = false;
+bool statusAlarmActive      = false;
 
 // Counter Telemetri SCADA
 int totalAkuisisi  = 0;
-int totalNormal    = 0;
+int totalAman      = 0;
 int totalPeringatan= 0;
 int totalBahaya    = 0;
 
@@ -82,7 +66,7 @@ int totalBahaya    = 0;
 // 5. SINKRONISASI WAKTU NTP
 // ==============================================================================
 const char* ntpServer      = "pool.ntp.org";
-const long  gmtOffset      = 28800; // GMT+8 WITA (atau sesuaikan: 25200 untuk GMT+7 WIB)
+const long  gmtOffset      = 28800; // GMT+8 WITA (25200 untuk GMT+7 WIB)
 const int   daylightOffset = 0;
 
 // ==============================================================================
@@ -91,7 +75,8 @@ const int   daylightOffset = 0;
 void connectWiFi();
 int readSensorLDR();
 String klasifikasiKondisiUV(int nilaiLDR);
-bool cekKondisiBahaya(int nilaiLDR);
+String getStatusLabel(int nilaiLDR);
+bool cekKondisiAlarm(int nilaiLDR);
 bool kirimTelemetriGitHub(String status, String kondisi, int nilaiLDR, bool triggerTelegram);
 String getWaktuFormatted();
 
@@ -104,7 +89,7 @@ void setup() {
 
   Serial.println("\n╔════════════════════════════════════════════════════════════╗");
   Serial.println("║        SISTEM SCADA IoT — MONITOR INTENSITAS UV            ║");
-  Serial.println("║               ESP8266 + SENSOR CAHAYA LDR                  ║");
+  Serial.println("║       ESP8266 ADC 10-BIT (0-1023) + SENSOR CAHAYA LDR      ║");
   Serial.println("╚════════════════════════════════════════════════════════════╝");
 
   // Inisialisasi LED Indikator
@@ -122,31 +107,17 @@ void setup() {
   // Uji pembacaan sensor awal
   int nilaiAwal = readSensorLDR();
   String kondisiAwal = klasifikasiKondisiUV(nilaiAwal);
-  Serial.printf("📊 Pembacaan Awal Sensor: %d | Kondisi: %s\n", nilaiAwal, kondisiAwal.c_str());
+  String statusAwal = getStatusLabel(nilaiAwal);
+  Serial.printf("📊 Pembacaan Awal Sensor ADC (10-bit): %d | Status: %s | Kondisi: %s\n", 
+    nilaiAwal, statusAwal.c_str(), kondisiAwal.c_str());
 
-  startTime = millis();
-  Serial.println("✅ Sistem SCADA Siap beroperasi! Mengirim telemetri berkala...\n");
+  Serial.println("✅ Sistem SCADA Siap beroperasi! Mengirim telemetri secara kontinu...\n");
 }
 
 // ==============================================================================
-// LOOP UTAMA SCADA
+// LOOP UTAMA SCADA (KONTINU / REAL-TIME MONITORING TANPA BATAS WAKTU)
 // ==============================================================================
 void loop() {
-  // Cek apakah durasi monitoring 12 jam telah selesai
-  if (millis() - startTime >= DURASI_TOTAL) {
-    Serial.println("\n⏱️ [SCADA] Sesi monitoring 12 jam telah selesai.");
-    Serial.printf("  Total Pembacaan : %d\n", totalAkuisisi);
-    Serial.printf("  Kondisi NORMAL     : %d\n", totalNormal);
-    Serial.printf("  Kondisi PERINGATAN : %d\n", totalPeringatan);
-    Serial.printf("  Kondisi BAHAYA     : %d\n", totalBahaya);
-    digitalWrite(LED_INDICATOR, HIGH);
-
-    while (true) {
-      delay(10000);
-      yield();
-    }
-  }
-
   // Jaga koneksi WiFi tetap terhubung
   if (WiFi.status() != WL_CONNECTED) {
     connectWiFi();
@@ -158,46 +129,46 @@ void loop() {
     firstRead = false;
     lastReadTime = currentTime;
 
-    // 1. Baca nilai intensitas LDR (skala 0 - 4095)
+    // 1. Baca nilai intensitas LDR murni 10-bit (rentang 0 - 1023)
     int nilaiLDR = readSensorLDR();
     totalAkuisisi++;
 
-    // 2. Evaluasi kondisi UV berdasarkan ambang batas jurnal
+    // 2. Evaluasi status & kondisi UV berdasarkan batas 650 & 750
     String kondisi = klasifikasiKondisiUV(nilaiLDR);
-    bool bahaya = cekKondisiBahaya(nilaiLDR);
-    String statusLabel = kondisi;
+    String statusLabel = getStatusLabel(nilaiLDR);
+    bool isAlarm = cekKondisiAlarm(nilaiLDR);
 
-    if (kondisi == "NORMAL") {
-      totalNormal++;
-      digitalWrite(LED_INDICATOR, HIGH); // LED mati (Active LOW)
-    } else if (kondisi == "PERINGATAN") {
-      totalPeringatan++;
-      digitalWrite(LED_INDICATOR, HIGH); // LED mati pada kondisi PERINGATAN
-    } else {
+    // Update Counter & Kontrol LED Indikator
+    if (nilaiLDR >= BATAS_BAHAYA) {
       totalBahaya++;
-      digitalWrite(LED_INDICATOR, LOW);  // LED menyala pada kondisi BAHAYA
+      digitalWrite(LED_INDICATOR, LOW); // LED ON penuh
+    } else if (nilaiLDR >= BATAS_PERINGATAN) {
+      totalPeringatan++;
+      digitalWrite(LED_INDICATOR, LOW); // LED ON
+    } else {
+      totalAman++;
+      digitalWrite(LED_INDICATOR, HIGH); // LED OFF
     }
 
-    // 3. Logika Notifikasi Telegram (Hanya dikirim saat transisi ke UV Kurang/Bahaya)
+    // 3. Logika Notifikasi Telegram (Hanya dikirim saat transisi masuk ke Peringatan/Bahaya)
     bool triggerTelegram = false;
-    if (bahaya && !statusBahayaActive) {
-      statusBahayaActive = true;
+    if (isAlarm && !statusAlarmActive) {
+      statusAlarmActive = true;
       triggerTelegram = true;
-      Serial.println("🚨 [ALARM SCADA] INTENSITAS CAHAYA UV KURANG DARI AMBANG BATAS!");
-      Serial.println("📱 Mengirim sinyal darurat notifikasi Telegram...");
-    } else if (!bahaya && statusBahayaActive) {
-      statusBahayaActive = false;
-      Serial.println("✅ [SCADA] Intensitas cahaya UV telah kembali ke batas aman.");
+      Serial.printf("🚨 [ALARM SCADA] INTENSITAS UV KURANG! Status: %s (ADC: %d)\n", statusLabel.c_str(), nilaiLDR);
+      Serial.println("📱 Mengirim sinyal notifikasi Telegram...");
+    } else if (!isAlarm && statusAlarmActive) {
+      statusAlarmActive = false;
+      Serial.println("✅ [SCADA] Intensitas cahaya UV telah kembali ke ambang AMAN / OPTIMAL.");
     }
 
     // 4. Tampilkan status telemetri di Serial Monitor
     Serial.println("────────────────────────────────────────────────────────────");
     Serial.printf("📡 [SCADA Telemetri #%d] %s\n", totalAkuisisi, getWaktuFormatted().c_str());
-    Serial.printf("💡 Intensitas ADC : %d\n", nilaiLDR);
-    Serial.printf("📊 Kondisi UV     : %s\n", kondisi.c_str());
-    Serial.printf("🛡️ Status Sistem  : %s\n", statusLabel.c_str());
-    Serial.printf("📈 NORMAL: %d | PERINGATAN: %d | BAHAYA: %d\n",
-                  totalNormal, totalPeringatan, totalBahaya);
+    Serial.printf("💡 Intensitas ADC (10-Bit) : %d (Batas: Peringatan >= 650, Bahaya >= 750)\n", nilaiLDR);
+    Serial.printf("📊 Kondisi Radiasi UV       : %s\n", kondisi.c_str());
+    Serial.printf("🛡️ Status SCADA             : %s\n", statusLabel.c_str());
+    Serial.printf("📈 Aman: %d | Peringatan: %d | Bahaya: %d\n", totalAman, totalPeringatan, totalBahaya);
 
     // 5. Kirim telemetri ke repositori GitHub
     if (ENABLE_GITHUB_LOG) {
@@ -211,34 +182,46 @@ void loop() {
 }
 
 // ==============================================================================
-// FUNGSI AKUISISI & KALIBRASI SENSOR LDR
+// FUNGSI BACA SENSOR LDR (NATIVE 10-BIT ADC: 0 - 1023)
 // ==============================================================================
 int readSensorLDR() {
-  int rawADC = analogRead(LDR_PIN); // Rentang native ESP8266: 0 - 1023
-  // Konversi / mapping ke skala 12-bit (0 - 4095) untuk keselarasan dengan parameter SCADA
-  int scaledADC = map(rawADC, 0, 1023, 0, 4095);
-  return scaledADC;
+  // ESP8266 memiliki 1 pin ADC (A0) dengan resolusi native 10-bit (0 - 1023)
+  int rawADC = analogRead(LDR_PIN);
+  return rawADC;
 }
 
 // ==============================================================================
-// KLASIFIKASI KONDISI UV BERDASARKAN AMBANG BATAS JURNAL
+// KLASIFIKASI KONDISI UV BERDASARKAN AMBANG BATAS
 // ==============================================================================
 String klasifikasiKondisiUV(int nilaiLDR) {
-  if (nilaiLDR >= BATAS_NORMAL) {
-    return "NORMAL";
+  if (nilaiLDR >= BATAS_BAHAYA) {
+    return "UV Sangat Kurang";
   } else if (nilaiLDR >= BATAS_PERINGATAN) {
-    return "PERINGATAN";
+    return "UV Kurang";
   } else {
-    return "BAHAYA";
+    return "UV Optimal";
   }
 }
 
 // ==============================================================================
-// EVALUASI KONDISI ALARM / BAHAYA
+// LABEL STATUS SCADA (BAHAYA, PERINGATAN, AMAN)
 // ==============================================================================
-bool cekKondisiBahaya(int nilaiLDR) {
-  // Kondisi BAHAYA jika nilai ADC di bawah 2500
-  return (nilaiLDR < BATAS_PERINGATAN);
+String getStatusLabel(int nilaiLDR) {
+  if (nilaiLDR >= BATAS_BAHAYA) {
+    return "BAHAYA";
+  } else if (nilaiLDR >= BATAS_PERINGATAN) {
+    return "PERINGATAN";
+  } else {
+    return "AMAN";
+  }
+}
+
+// ==============================================================================
+// EVALUASI KONDISI ALARM (TRUE JIKA >= 650)
+// ==============================================================================
+bool cekKondisiAlarm(int nilaiLDR) {
+  // Peringatan / Alarm aktif jika intensitas UV di bawah batas acuan (ADC >= 650)
+  return (nilaiLDR >= BATAS_PERINGATAN);
 }
 
 // ==============================================================================
