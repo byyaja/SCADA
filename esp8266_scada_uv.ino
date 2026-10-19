@@ -20,15 +20,15 @@
 // ==============================================================================
 // 1. KONFIGURASI JARINGAN WiFi
 // ==============================================================================
-const char* WIFI_SSID       = "Byy";       // Ganti dengan SSID WiFi Anda
-const char* WIFI_PASSWORD   = "buyyyyyy";  // Ganti dengan Password WiFi Anda
+const char* WIFI_SSID       = "Byy";
+const char* WIFI_PASSWORD   = "buyyyyyy";
 
 // ==============================================================================
 // 2. KONFIGURASI REPOSITORI GITHUB & TELEMETRI SCADA
 // ==============================================================================
 const bool  ENABLE_GITHUB_LOG = true;
-const char* GITHUB_OWNER      = "byyaja";  // Username Akun GitHub
-const char* GITHUB_REPO       = "unyil";   // Nama Repositori GitHub
+const char* GITHUB_OWNER      = "byyaja";
+const char* GITHUB_REPO       = "SCADA";
 
 /*
  * PENTING KEAMANAN GITHUB:
@@ -36,7 +36,7 @@ const char* GITHUB_REPO       = "unyil";   // Nama Repositori GitHub
  * JANGAN commit / push file yang berisi token asli ke GitHub publik,
  * karena GitHub Secret Scanning akan otomatis mematikan (revoke) token tersebut!
  */
-const char* GITHUB_TOKEN      = "ghp_MASUKKAN_TOKEN_BARU_ANDA_DISINI"; 
+const char* GITHUB_TOKEN      = ;
 
 // ==============================================================================
 // 3. PARAMETER SENSOR LDR & AMBANG BATAS UV (REFERENSI JURNAL)
@@ -54,10 +54,9 @@ const char* SENSOR_LOCATION = "Ruang Sterilisasi UV"; // Nama Node / Lokasi SCAD
  * 
  * Silakan sesuaikan angka ambang batas berikut sesuai tabel jurnal yang Anda temukan:
  */
-const int BATAS_UV_SANGAT_KURANG = 3700; // ADC >= 3700 : UV Sangat Kurang (BAHAYA)
-const int BATAS_UV_KURANG        = 2500; // ADC >= 2500 : UV Kurang (PERINGATAN)
-const int BATAS_UV_CUKUP         = 1200; // ADC >= 1200 : UV Cukup (AMAN)
-                                         // ADC <  1200 : UV Optimal / Sangat Baik (AMAN)
+const int BATAS_NORMAL     = 3500; // ADC 3500-4095: NORMAL
+const int BATAS_PERINGATAN = 2500; // ADC 2500-3499: PERINGATAN
+// ADC 0-2499: BAHAYA
 
 // ==============================================================================
 // 4. TIMING PENGUKURAN & INTERVAL SCADA
@@ -75,8 +74,9 @@ bool statusBahayaActive     = false;
 
 // Counter Telemetri SCADA
 int totalAkuisisi  = 0;
-int totalAman      = 0;
+int totalNormal    = 0;
 int totalPeringatan= 0;
+int totalBahaya    = 0;
 
 // ==============================================================================
 // 5. SINKRONISASI WAKTU NTP
@@ -136,8 +136,9 @@ void loop() {
   if (millis() - startTime >= DURASI_TOTAL) {
     Serial.println("\n⏱️ [SCADA] Sesi monitoring 12 jam telah selesai.");
     Serial.printf("  Total Pembacaan : %d\n", totalAkuisisi);
-    Serial.printf("  Kondisi Aman    : %d\n", totalAman);
-    Serial.printf("  Kondisi Kurang  : %d\n", totalPeringatan);
+    Serial.printf("  Kondisi NORMAL     : %d\n", totalNormal);
+    Serial.printf("  Kondisi PERINGATAN : %d\n", totalPeringatan);
+    Serial.printf("  Kondisi BAHAYA     : %d\n", totalBahaya);
     digitalWrite(LED_INDICATOR, HIGH);
 
     while (true) {
@@ -164,14 +165,17 @@ void loop() {
     // 2. Evaluasi kondisi UV berdasarkan ambang batas jurnal
     String kondisi = klasifikasiKondisiUV(nilaiLDR);
     bool bahaya = cekKondisiBahaya(nilaiLDR);
-    String statusLabel = bahaya ? "BAHAYA" : "AMAN";
+    String statusLabel = kondisi;
 
-    if (bahaya) {
+    if (kondisi == "NORMAL") {
+      totalNormal++;
+      digitalWrite(LED_INDICATOR, HIGH); // LED mati (Active LOW)
+    } else if (kondisi == "PERINGATAN") {
       totalPeringatan++;
-      digitalWrite(LED_INDICATOR, LOW); // Nyalakan LED peringatan
+      digitalWrite(LED_INDICATOR, HIGH); // LED mati pada kondisi PERINGATAN
     } else {
-      totalAman++;
-      digitalWrite(LED_INDICATOR, HIGH); // Matikan LED
+      totalBahaya++;
+      digitalWrite(LED_INDICATOR, LOW);  // LED menyala pada kondisi BAHAYA
     }
 
     // 3. Logika Notifikasi Telegram (Hanya dikirim saat transisi ke UV Kurang/Bahaya)
@@ -192,7 +196,8 @@ void loop() {
     Serial.printf("💡 Intensitas ADC : %d\n", nilaiLDR);
     Serial.printf("📊 Kondisi UV     : %s\n", kondisi.c_str());
     Serial.printf("🛡️ Status Sistem  : %s\n", statusLabel.c_str());
-    Serial.printf("📈 Aman: %d | Kurang/Bahaya: %d\n", totalAman, totalPeringatan);
+    Serial.printf("📈 NORMAL: %d | PERINGATAN: %d | BAHAYA: %d\n",
+                  totalNormal, totalPeringatan, totalBahaya);
 
     // 5. Kirim telemetri ke repositori GitHub
     if (ENABLE_GITHUB_LOG) {
@@ -219,14 +224,12 @@ int readSensorLDR() {
 // KLASIFIKASI KONDISI UV BERDASARKAN AMBANG BATAS JURNAL
 // ==============================================================================
 String klasifikasiKondisiUV(int nilaiLDR) {
-  if (nilaiLDR >= BATAS_UV_SANGAT_KURANG) {
-    return "UV Sangat Kurang";
-  } else if (nilaiLDR >= BATAS_UV_KURANG) {
-    return "UV Kurang (Peringatan)";
-  } else if (nilaiLDR >= BATAS_UV_CUKUP) {
-    return "UV Cukup";
+  if (nilaiLDR >= BATAS_NORMAL) {
+    return "NORMAL";
+  } else if (nilaiLDR >= BATAS_PERINGATAN) {
+    return "PERINGATAN";
   } else {
-    return "UV Optimal";
+    return "BAHAYA";
   }
 }
 
@@ -234,8 +237,8 @@ String klasifikasiKondisiUV(int nilaiLDR) {
 // EVALUASI KONDISI ALARM / BAHAYA
 // ==============================================================================
 bool cekKondisiBahaya(int nilaiLDR) {
-  // Peringatan aktif jika intensitas UV kurang dari ambang batas aman
-  return (nilaiLDR >= BATAS_UV_KURANG);
+  // Kondisi BAHAYA jika nilai ADC di bawah 2500
+  return (nilaiLDR < BATAS_PERINGATAN);
 }
 
 // ==============================================================================
