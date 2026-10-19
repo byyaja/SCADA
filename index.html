@@ -439,6 +439,12 @@
       border: 1px solid var(--alert-border);
     }
 
+    .badge-warning {
+      background: #fef3c7;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+
     /* =========================================================
        CHARTS SECTION
        ========================================================= */
@@ -636,7 +642,7 @@
         </div>
         <div class="form-group">
           <label>Batas Ambang UV Kurang (ADC)</label>
-          <input type="number" id="scadaThreshold" value="2500" title="Batas referensi dari jurnal (dapat disesuaikan)">
+          <input type="number" id="scadaThreshold" value="650" title="Batas acuan peringatan (650) & bahaya (750)">
         </div>
       </div>
 
@@ -674,7 +680,7 @@
         <div class="kpi-card" id="cardLdrValue">
           <div class="kpi-label">
             <span>Intensitas UV Terkini</span>
-            <span>⚡ ADC 12-Bit</span>
+            <span>⚡ ADC 10-Bit (0-1023)</span>
           </div>
           <div class="kpi-value" id="kpiCurrentVal">0</div>
           <div class="kpi-sub" id="kpiCondition">Menganalisis kondisi...</div>
@@ -818,7 +824,7 @@
         owner: localStorage.getItem('scada_gh_owner') || defaultOwner,
         repo: localStorage.getItem('scada_gh_repo') || defaultRepo,
         token: localStorage.getItem('scada_gh_token') || '',
-        threshold: parseInt(localStorage.getItem('scada_threshold')) || 2500
+        threshold: parseInt(localStorage.getItem('scada_threshold')) || 650
       };
     }
 
@@ -831,7 +837,7 @@
       const owner = document.getElementById('ghOwner').value.trim() || 'byyaja';
       const repo = document.getElementById('ghRepo').value.trim() || 'SCADA';
       const token = document.getElementById('ghToken').value.trim();
-      const threshold = parseInt(document.getElementById('scadaThreshold').value) || 2500;
+      const threshold = parseInt(document.getElementById('scadaThreshold').value) || 650;
 
       localStorage.setItem('scada_gh_owner', owner);
       localStorage.setItem('scada_gh_repo', repo);
@@ -851,7 +857,7 @@
       document.getElementById('ghOwner').value = 'byyaja';
       document.getElementById('ghRepo').value = 'SCADA';
       document.getElementById('ghToken').value = '';
-      document.getElementById('scadaThreshold').value = 2500;
+      document.getElementById('scadaThreshold').value = 650;
 
       fetchScadaData();
     }
@@ -976,21 +982,35 @@
       document.getElementById('kpiTotalLog').textContent = globalLogData.length;
       document.getElementById('kpiLastUpdated').textContent = `Waktu: ${latest.time}`;
 
-      // Status Evaluasi (Peringatan bila BAHAYA atau intensitas kurang)
-      const isWarning = (latest.status.toUpperCase() === 'BAHAYA' || latest.kondisi.toLowerCase().includes('kurang') || latest.kondisi.toLowerCase().includes('gelap'));
+      // Status Evaluasi 3 Level: BAHAYA / PERINGATAN / AMAN
+      const statusUp = latest.status.toUpperCase();
+      const isBahaya = (statusUp === 'BAHAYA');
+      const isPeringatan = (statusUp === 'PERINGATAN');
       const statusBadge = document.getElementById('kpiStatusBadge');
       const cardStatus = document.getElementById('cardScadaStatus');
       const cardLdr = document.getElementById('cardLdrValue');
       const alarmBanner = document.getElementById('alarmBanner');
 
-      if (isWarning) {
+      if (isBahaya) {
         statusBadge.className = 'badge-status badge-danger';
-        statusBadge.textContent = '⚠️ PERINGATAN: UV KURANG';
+        statusBadge.textContent = '🔴 BAHAYA: UV SANGAT TINGGI';
         cardStatus.className = 'kpi-card warning-kpi';
         cardLdr.className = 'kpi-card warning-kpi';
         alarmBanner.style.display = 'block';
+        alarmBanner.style.borderColor = 'var(--alert-border)';
+        alarmBanner.style.background = 'var(--alert-bg)';
+        document.getElementById('alarmTitle').textContent = `🔴 BAHAYA SCADA: ${latest.kondisi.toUpperCase()}!`;
+        document.getElementById('alarmDesc').textContent = `Intensitas radiasi UV tercatat ${latest.ldr} (Status: ${latest.status}). Nilai melebihi batas bahaya (≥750)! Tindakan segera diperlukan.`;
+      } else if (isPeringatan) {
+        statusBadge.className = 'badge-status badge-warning';
+        statusBadge.textContent = '⚠️ PERINGATAN: UV MENINGKAT';
+        cardStatus.className = 'kpi-card warning-kpi';
+        cardLdr.className = 'kpi-card warning-kpi';
+        alarmBanner.style.display = 'block';
+        alarmBanner.style.borderColor = '#b45309';
+        alarmBanner.style.background = 'rgba(180, 83, 9, 0.08)';
         document.getElementById('alarmTitle').textContent = `⚠️ PERINGATAN SCADA: ${latest.kondisi.toUpperCase()}!`;
-        document.getElementById('alarmDesc').textContent = `Intensitas radiasi UV tercatat ${latest.ldr} (Status: ${latest.status}). Sinar UV kurang dari standar aman/efektif!`;
+        document.getElementById('alarmDesc').textContent = `Intensitas radiasi UV tercatat ${latest.ldr} (Status: ${latest.status}). Nilai memasuki zona peringatan (650–749). Perhatikan kondisi lingkungan.`;
       } else {
         statusBadge.className = 'badge-status badge-safe';
         statusBadge.textContent = '✅ AMAN / UV OPTIMAL';
@@ -1060,19 +1080,19 @@
       });
     }
 
-    // Render Donut Chart (Proporsi Status)
+    // Render Donut Chart (Proporsi Status 3 Level)
     function renderDonutChart() {
       const ctx = document.getElementById('donutChart').getContext('2d');
 
       let countAman = 0;
+      let countPeringatan = 0;
       let countBahaya = 0;
 
       globalLogData.forEach(d => {
-        if (d.status.toUpperCase() === 'BAHAYA' || d.kondisi.toLowerCase().includes('kurang') || d.kondisi.toLowerCase().includes('gelap')) {
-          countBahaya++;
-        } else {
-          countAman++;
-        }
+        const s = d.status.toUpperCase();
+        if (s === 'BAHAYA') countBahaya++;
+        else if (s === 'PERINGATAN') countPeringatan++;
+        else countAman++;
       });
 
       if (donutChartInstance) {
@@ -1082,10 +1102,10 @@
       donutChartInstance = new Chart(ctx, {
         type: 'doughnut',
         data: {
-          labels: ['UV Optimal / Aman', 'UV Kurang / Peringatan'],
+          labels: ['✅ Aman / Optimal', '⚠️ Peringatan (650–749)', '🔴 Bahaya (≥750)'],
           datasets: [{
-            data: [countAman, countBahaya],
-            backgroundColor: ['#2e7d32', '#881c32'], // Hijau emerald & Maron pekat
+            data: [countAman, countPeringatan, countBahaya],
+            backgroundColor: ['#2e7d32', '#b45309', '#881c32'], // Hijau, Amber, Maroon
             borderColor: '#fdfbf7',
             borderWidth: 3
           }]
@@ -1130,10 +1150,14 @@
 
       reversed.slice(0, 50).forEach(d => {
         const tr = document.createElement('tr');
-        const isWarning = (d.status.toUpperCase() === 'BAHAYA' || d.kondisi.toLowerCase().includes('kurang') || d.kondisi.toLowerCase().includes('gelap'));
+        const statusUp = d.status.toUpperCase();
+        const isBahaya = (statusUp === 'BAHAYA');
+        const isPeringatan = (statusUp === 'PERINGATAN');
 
-        const badgeHtml = isWarning
-          ? `<span class="badge-status badge-danger">⚠️ KURANG</span>`
+        const badgeHtml = isBahaya
+          ? `<span class="badge-status badge-danger">🔴 BAHAYA</span>`
+          : isPeringatan
+          ? `<span class="badge-status badge-warning">⚠️ PERINGATAN</span>`
           : `<span class="badge-status badge-safe">✅ OPTIMAL</span>`;
 
         tr.innerHTML = `
