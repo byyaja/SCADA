@@ -750,8 +750,13 @@
             <span>📋</span>
             <span>Log Riwayat SCADA (Sensor Telemetry Records)</span>
           </div>
-          <div style="font-size: 0.85rem; color: var(--text-muted);">
-            Auto-refresh setiap <b>2 menit</b>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 0.85rem; color: var(--text-muted);" id="refreshInfoText">
+              Auto-refresh setiap <b>10 detik</b>
+            </span>
+            <button onclick="fetchScadaData()" style="background: var(--maroon-700); color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+              🔄 Refresh Sekarang
+            </button>
           </div>
         </div>
 
@@ -854,20 +859,24 @@
     // Mengambil data log dari GitHub (Prioritaskan raw fetch publik untuk cegah 401)
     async function fetchScadaData() {
       const settings = getSettings();
-      document.getElementById('loadingState').style.display = 'block';
+      const isInitial = (document.getElementById('dashboardContent').style.display === 'none');
+      if (isInitial) {
+        document.getElementById('loadingState').style.display = 'block';
+      }
 
       try {
         let csvText = '';
         const timestamp = new Date().getTime();
 
-        // 1. Coba ambil langsung dari raw.githubusercontent.com (Tanpa token, aman dari 401 untuk repo publik)
+        // 1. Coba ambil langsung dari raw.githubusercontent.com dengan bypass cache
         const rawUrl = `https://raw.githubusercontent.com/${settings.owner}/${settings.repo}/main/logs/sensor_log.csv?_t=${timestamp}`;
-        let response = await fetch(rawUrl);
+        let response = await fetch(rawUrl, { cache: 'no-store' });
 
         if (!response.ok && settings.token) {
           // 2. Jika gagal dan ada token, coba gunakan API terotentikasi
           const apiUrl = `https://api.github.com/repos/${settings.owner}/${settings.repo}/contents/logs/sensor_log.csv`;
           response = await fetch(apiUrl, {
+            cache: 'no-store',
             headers: {
               'Authorization': `Bearer ${settings.token}`,
               'Accept': 'application/vnd.github.v3.raw'
@@ -890,9 +899,9 @@
         renderDonutChart();
         renderTable();
 
-        // Jadwalkan auto refresh setiap 2 menit
+        // Jadwalkan auto refresh setiap 10 detik (Real-Time SCADA)
         if (refreshTimer) clearInterval(refreshTimer);
-        refreshTimer = setInterval(fetchScadaData, 120000);
+        refreshTimer = setInterval(fetchScadaData, 10000);
 
       } catch (err) {
         console.error('Fetch error:', err);
