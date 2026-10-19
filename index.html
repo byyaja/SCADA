@@ -640,10 +640,7 @@
           <label>Personal Access Token (Opsional)</label>
           <input type="password" id="ghToken" placeholder="Kosongkan jika repository publik">
         </div>
-        <div class="form-group">
-          <label>Batas Ambang UV Kurang (ADC)</label>
-          <input type="number" id="scadaThreshold" value="650" title="Batas acuan peringatan (650) & bahaya (750)">
-        </div>
+
       </div>
 
       <div style="margin-top: 18px;">
@@ -823,8 +820,7 @@
       return {
         owner: localStorage.getItem('scada_gh_owner') || defaultOwner,
         repo: localStorage.getItem('scada_gh_repo') || defaultRepo,
-        token: localStorage.getItem('scada_gh_token') || '',
-        threshold: parseInt(localStorage.getItem('scada_threshold')) || 650
+        token: localStorage.getItem('scada_gh_token') || ''
       };
     }
 
@@ -837,12 +833,10 @@
       const owner = document.getElementById('ghOwner').value.trim() || 'byyaja';
       const repo = document.getElementById('ghRepo').value.trim() || 'SCADA';
       const token = document.getElementById('ghToken').value.trim();
-      const threshold = parseInt(document.getElementById('scadaThreshold').value) || 650;
 
       localStorage.setItem('scada_gh_owner', owner);
       localStorage.setItem('scada_gh_repo', repo);
       localStorage.setItem('scada_gh_token', token);
-      localStorage.setItem('scada_threshold', threshold);
 
       document.getElementById('settingsPanel').classList.remove('active');
       fetchScadaData();
@@ -852,12 +846,10 @@
       localStorage.removeItem('scada_gh_owner');
       localStorage.removeItem('scada_gh_repo');
       localStorage.removeItem('scada_gh_token');
-      localStorage.removeItem('scada_threshold');
 
       document.getElementById('ghOwner').value = 'byyaja';
       document.getElementById('ghRepo').value = 'SCADA';
       document.getElementById('ghToken').value = '';
-      document.getElementById('scadaThreshold').value = 650;
 
       fetchScadaData();
     }
@@ -1177,7 +1169,6 @@
       document.getElementById('ghOwner').value = s.owner;
       document.getElementById('ghRepo').value = s.repo;
       document.getElementById('ghToken').value = s.token;
-      document.getElementById('scadaThreshold').value = s.threshold;
 
       fetchScadaData();
     });
