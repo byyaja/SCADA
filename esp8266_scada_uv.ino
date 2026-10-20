@@ -53,8 +53,8 @@ const unsigned long INTERVAL_BACA = 15000;   // Interval pembacaan (15 detik)
 unsigned long lastReadTime  = 0;
 bool firstRead              = true;
 
-// Edge Detection: Mencegah spam pesan Telegram
-bool statusAlarmActive      = false;
+// State Tracking: Mencegah spam pesan Telegram & mendeteksi eskalasi status (AMAN / PERINGATAN / BAHAYA)
+String lastStatus           = "AMAN";
 
 // Counter Telemetri SCADA
 int totalAkuisisi  = 0;
@@ -150,16 +150,26 @@ void loop() {
       digitalWrite(LED_INDICATOR, HIGH); // LED OFF
     }
 
-    // 3. Logika Notifikasi Telegram (Hanya dikirim saat transisi masuk ke Peringatan/Bahaya)
+    // 3. Logika Notifikasi Telegram (Kirim saat masuk ke PERINGATAN atau BAHAYA, serta saat eskalasi)
     bool triggerTelegram = false;
-    if (isAlarm && !statusAlarmActive) {
-      statusAlarmActive = true;
-      triggerTelegram = true;
-      Serial.printf("🚨 [ALARM SCADA] INTENSITAS UV KURANG! Status: %s (ADC: %d)\n", statusLabel.c_str(), nilaiLDR);
-      Serial.println("📱 Mengirim sinyal notifikasi Telegram...");
-    } else if (!isAlarm && statusAlarmActive) {
-      statusAlarmActive = false;
-      Serial.println("✅ [SCADA] Intensitas cahaya UV telah kembali ke ambang AMAN / OPTIMAL.");
+
+    if (statusLabel != lastStatus) {
+      if (statusLabel == "BAHAYA") {
+        // Masuk ke status BAHAYA (baik langsung dari AMAN maupun eskalasi dari PERINGATAN)
+        triggerTelegram = true;
+        Serial.printf("🚨 [ALARM SCADA] BAHAYA TERDETEKSI! Status: %s | Kondisi: %s (ADC: %d)\n", 
+          statusLabel.c_str(), kondisi.c_str(), nilaiLDR);
+        Serial.println("📱 Mengirim sinyal notifikasi Telegram (BAHAYA)...");
+      } else if (statusLabel == "PERINGATAN" && lastStatus == "AMAN") {
+        // Masuk ke status PERINGATAN dari kondisi normal/AMAN
+        triggerTelegram = true;
+        Serial.printf("⚠️ [ALARM SCADA] PERINGATAN TERDETEKSI! Status: %s | Kondisi: %s (ADC: %d)\n", 
+          statusLabel.c_str(), kondisi.c_str(), nilaiLDR);
+        Serial.println("📱 Mengirim sinyal notifikasi Telegram (PERINGATAN)...");
+      } else if (statusLabel == "AMAN") {
+        Serial.println("✅ [SCADA] Intensitas cahaya UV telah kembali ke ambang AMAN / OPTIMAL.");
+      }
+      lastStatus = statusLabel;
     }
 
     // 4. Tampilkan status telemetri di Serial Monitor
