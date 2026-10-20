@@ -6,17 +6,21 @@ on:
   workflow_dispatch:
     inputs:
       status:
-        description: 'Status (AMAN/BAHAYA)'
+        description: 'Status (AMAN/PERINGATAN/BAHAYA)'
         required: false
-        default: 'AMAN'
+        default: 'PERINGATAN'
       kondisi:
         description: 'Kondisi UV'
         required: false
-        default: 'UV Cukup'
+        default: 'UV Kurang'
       ldr_value:
         description: 'Nilai LDR ADC'
         required: false
-        default: '1200'
+        default: '680'
+      trigger_telegram:
+        description: 'Kirim notifikasi Telegram (true/false)'
+        required: false
+        default: 'true'
 
 permissions:
   contents: write
@@ -59,19 +63,40 @@ jobs:
           git push
 
       - name: Kirim Notifikasi Telegram
-        if: github.event.client_payload.trigger_telegram == 'true'
+        if: ${{ (github.event.client_payload.trigger_telegram == 'true') || (github.event.inputs.trigger_telegram == 'true') }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          STATUS="${{ github.event.client_payload.status }}"
-          KONDISI="${{ github.event.client_payload.kondisi }}"
+          STATUS="${{ github.event.client_payload.status || github.event.inputs.status || 'PERINGATAN' }}"
+          KONDISI="${{ github.event.client_payload.kondisi || github.event.inputs.kondisi || 'UV Kurang' }}"
           LOCATION="${{ github.event.client_payload.location || 'Ruang Sterilisasi UV' }}"
-          TIMESTAMP="${{ github.event.client_payload.timestamp || 'Unknown' }}"
-          LDR_VALUE="${{ github.event.client_payload.ldr_value || '0' }}"
+          TIMESTAMP="${{ github.event.client_payload.timestamp || 'Waktu tidak tersedia' }}"
+          LDR_VALUE="${{ github.event.client_payload.ldr_value || github.event.inputs.ldr_value || '0' }}"
 
-          TEXT="🚨 PERINGATAN SCADA: INTENSITAS UV KURANG!%0AStatus: ${STATUS}%0AKondisi: ${KONDISI}%0ALokasi: ${LOCATION}%0AWaktu: ${TIMESTAMP}%0ANilai ADC: ${LDR_VALUE}"
+          if [ "${STATUS}" = "BAHAYA" ]; then
+            HEADER="🚨 BAHAYA - RADIASI UV SANGAT KURANG!"
+            ALERT_NOTE="⚠️ Intensitas radiasi UV kritis! Segera periksa sensor dan lampu UV!"
+          else
+            HEADER="⚠️ PERINGATAN - RADIASI UV KURANG!"
+            ALERT_NOTE="⚠️ Intensitas radiasi UV menurun di bawah ambang batas acuan."
+          fi
+
+          TEXT="${HEADER}
+━━━━━━━━━━━━━━━━━━━━
+🛡️ Status: ${STATUS}
+💡 Kondisi: ${KONDISI}
+📍 Lokasi: ${LOCATION}
+⏰ Waktu: ${TIMESTAMP}
+📈 Nilai ADC LDR: ${LDR_VALUE}
+━━━━━━━━━━━━━━━━━━━━
+${ALERT_NOTE}"
 
           if [ -n "${TELEGRAM_BOT_TOKEN}" ] && [ -n "${TELEGRAM_CHAT_ID}" ]; then
-            curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${TEXT}"
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=${TEXT}"
+            echo "Notifikasi Telegram berhasil dikirim."
+          else
+            echo "⚠️ TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum diatur pada Secrets repository!"
           fi
