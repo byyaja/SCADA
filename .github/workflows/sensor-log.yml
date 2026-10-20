@@ -60,6 +60,7 @@ jobs:
           git add logs/sensor_log.csv
           git diff --quiet --cached && echo "Tidak ada perubahan data" && exit 0
           git commit -m "Log telemetri SCADA: ${{ github.event.client_payload.kondisi || 'Update' }} [skip ci]"
+          git pull --rebase origin main || true
           git push
 
       - name: Kirim Notifikasi Telegram
@@ -82,15 +83,8 @@ jobs:
             ALERT_NOTE="⚠️ Intensitas radiasi UV menurun di bawah ambang batas acuan."
           fi
 
-          TEXT="${HEADER}
-━━━━━━━━━━━━━━━━━━━━
-🛡️ Status: ${STATUS}
-💡 Kondisi: ${KONDISI}
-📍 Lokasi: ${LOCATION}
-⏰ Waktu: ${TIMESTAMP}
-📈 Nilai ADC LDR: ${LDR_VALUE}
-━━━━━━━━━━━━━━━━━━━━
-${ALERT_NOTE}"
+          TEXT=$(printf "%s\n━━━━━━━━━━━━━━━━━━━━\n🛡️ Status: %s\n💡 Kondisi: %s\n📍 Lokasi: %s\n⏰ Waktu: %s\n📈 Nilai ADC LDR: %s\n━━━━━━━━━━━━━━━━━━━━\n%s" \
+            "${HEADER}" "${STATUS}" "${KONDISI}" "${LOCATION}" "${TIMESTAMP}" "${LDR_VALUE}" "${ALERT_NOTE}")
 
           if [ -n "${TELEGRAM_BOT_TOKEN}" ] && [ -n "${TELEGRAM_CHAT_ID}" ]; then
             curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
@@ -98,5 +92,5 @@ ${ALERT_NOTE}"
               --data-urlencode "text=${TEXT}"
             echo "Notifikasi Telegram berhasil dikirim."
           else
-            echo "⚠️ TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum diatur pada Secrets repository!"
+            echo "TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum diatur pada Secrets repository!"
           fi
