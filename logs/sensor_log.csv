@@ -509,3 +509,4 @@ Tanggal_Waktu,Status,Kondisi,Lokasi,Nilai_LDR
 2026-10-20 14:00:16 WITA,AMAN,UV Optimal,Ruang Sterilisasi UV,249
 2026-10-22 15:31:03 WITA,PERINGATAN,UV Kurang,Ruang Sterilisasi UV,679
 2026-10-22 15:31:11 WITA,PERINGATAN,UV Kurang,Ruang Sterilisasi UV,674
+2026-10-22 15:31:25 WITA,BAHAYA,UV Sangat Kurang,Ruang Sterilisasi UV,778
