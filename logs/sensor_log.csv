@@ -537,3 +537,4 @@ Tanggal_Waktu,Status,Kondisi,Lokasi,Nilai_LDR
 Waktu tidak sinkron,PERINGATAN,UV Kurang,Ruang Sterilisasi UV,745
 Waktu tidak sinkron,AMAN,UV Optimal,Ruang Sterilisasi UV,627
 2026-11-05 11:44:50 WITA,AMAN,UV Optimal,Ruang Sterilisasi UV,457
+2026-11-05 11:45:00 WITA,BAHAYA,UV Sangat Kurang,Ruang Sterilisasi UV,917
